@@ -19,6 +19,9 @@
         // Device orientation values
         let gravityX = 0;
         let gravityY = 1;
+        let hasMotionPermission = false;
+        let manualGravity = false;
+        let permissionRequested = false;
         
         // Image scaling parameters
         const MAX_SIZE = 80;
@@ -50,13 +53,8 @@
             // Setup mouse interaction
             setupMouseInteraction();
             
-            // Request device orientation permission (for iOS 13+)
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission();
-            }
-            
-            // Listen for device orientation changes
-            window.addEventListener('deviceorientation', handleOrientation);
+            // Setup permission system
+            setupPermissionSystem();
         }
         
         function createBoundaries() {
@@ -88,9 +86,15 @@
             for (let i = 0; i < images.length; i++) {
                 let img = images[i];
                 
-                // Calculate scaled dimensions maintaining aspect ratio
-                //let scale = random(MIN_SIZE, MAX_SIZE) / max(img.width, img.height);
-                let scale = 0.25;
+                // Calculate responsive scale based on screen size
+                // Base scale of 0.25, but adjust based on screen dimensions
+                let baseScale = 0.25;
+                let screenScale = min(windowWidth, windowHeight) / 1000; // Normalize to 1000px reference
+                let scale = baseScale * screenScale;
+                
+                // Ensure minimum and maximum scale limits
+                scale = constrain(scale, 0.25, 0.8);
+                
                 let scaledWidth = img.width * scale;
                 let scaledHeight = img.height * scale;
                 
@@ -124,6 +128,84 @@
             }
         }
         
+        function setupPermissionSystem() {
+            // Wait for DOM to be ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', setupPermissionSystem);
+                return;
+            }
+            
+            const controlModeSpan = document.getElementById('controlMode');
+            
+            // Check if element exists
+            if (!controlModeSpan) {
+                console.error('Control mode element not found');
+                return;
+            }
+            
+            // Check if device has orientation sensors
+            const hasOrientationSensors = 'DeviceOrientationEvent' in window;
+            
+            if (!hasOrientationSensors) {
+                // Desktop or device without sensors
+                manualGravity = true;
+                controlModeSpan.textContent = 'Use arrow keys for gravity';
+                return;
+            }
+            
+            // Check if we need to request permission (iOS 13+)
+            const needsPermission = typeof DeviceOrientationEvent !== 'undefined' 
+                && typeof DeviceOrientationEvent.requestPermission === 'function';
+            
+            if (!needsPermission) {
+                // Android or older iOS - no permission needed
+                hasMotionPermission = true;
+                enableDeviceOrientation();
+                controlModeSpan.textContent = 'Tilt device active';
+                return;
+            }
+            
+            // iOS 13+ - need user interaction to request permission
+            controlModeSpan.textContent = 'Tap screen to enable motion';
+            
+            // Add click/touch listener to canvas
+            canvas.canvas.addEventListener('click', requestMotionPermission);
+            canvas.canvas.addEventListener('touchstart', requestMotionPermission);
+        }
+        
+        async function requestMotionPermission() {
+            if (permissionRequested) return;
+            permissionRequested = true;
+            
+            const controlModeSpan = document.getElementById('controlMode');
+            
+            try {
+                const permission = await DeviceOrientationEvent.requestPermission();
+                
+                if (permission === 'granted') {
+                    hasMotionPermission = true;
+                    enableDeviceOrientation();
+                    controlModeSpan.textContent = 'Motion sensors enabled';
+                    
+                    // Remove event listeners
+                    canvas.canvas.removeEventListener('click', requestMotionPermission);
+                    canvas.canvas.removeEventListener('touchstart', requestMotionPermission);
+                } else {
+                    manualGravity = true;
+                    controlModeSpan.textContent = 'Motion denied - use arrow keys';
+                }
+            } catch (error) {
+                console.error('Error requesting permission:', error);
+                manualGravity = true;
+                controlModeSpan.textContent = 'Motion error - use arrow keys';
+            }
+        }
+        
+        function enableDeviceOrientation() {
+            window.addEventListener('deviceorientation', handleOrientation);
+            console.log('Device orientation enabled');
+        }
+        
         function setupMouseInteraction() {
             // Create mouse constraint for dragging
             let mouse = Mouse.create(canvas.canvas);
@@ -144,6 +226,8 @@
         }
         
         function handleOrientation(event) {
+            if (!hasMotionPermission) return;
+            
             // Get device orientation values
             let beta = event.beta;   // front/back tilt (-180 to 180)
             let gamma = event.gamma; // left/right tilt (-90 to 90)
@@ -228,6 +312,20 @@
             line(0, 0, -5, 2);
             pop();
             
+            // Show control mode
+            fill(255);
+            noStroke();
+            textAlign(CENTER);
+            textSize(10);
+            if (manualGravity) {
+                text("Manual", 0, 45);
+                text("Use arrows", 0, 55);
+            } else if (hasMotionPermission) {
+                text("Motion", 0, 45);
+            } else {
+                text("Static", 0, 45);
+            }
+            
             pop();
         }
         
@@ -249,6 +347,40 @@
             
             // Create new boundaries
             createBoundaries();
+            
+            // Update item scales for new screen size
+            updateItemScales();
+        }
+        
+        function updateItemScales() {
+            for (let item of items) {
+                // Recalculate responsive scale
+                let baseScale = 0.25;
+                let screenScale = min(windowWidth, windowHeight) / 1000;
+                let newScale = constrain(baseScale * screenScale, 0.1, 0.5);
+                
+                // Calculate new dimensions
+                let newScaledWidth = item.image.width * newScale;
+                let newScaledHeight = item.image.height * newScale;
+                
+                // Update physics body size
+                const PHYSICS_SCALE = 0.8;
+                let newPhysicsWidth = newScaledWidth * PHYSICS_SCALE;
+                let newPhysicsHeight = newScaledHeight * PHYSICS_SCALE;
+                
+                // Scale the physics body
+                Body.scale(item, 
+                    newPhysicsWidth / item.physicsWidth, 
+                    newPhysicsHeight / item.physicsHeight
+                );
+                
+                // Update stored dimensions
+                item.scaledWidth = newScaledWidth;
+                item.scaledHeight = newScaledHeight;
+                item.physicsWidth = newPhysicsWidth;
+                item.physicsHeight = newPhysicsHeight;
+                item.scale = newScale;
+            }
         }
         
         function keyPressed() {
@@ -261,6 +393,33 @@
                     });
                     Body.setVelocity(item, { x: 0, y: 0 });
                     Body.setAngularVelocity(item, 0);
+                }
+            }
+            
+            // Manual gravity controls (when motion sensors not available)
+            if (manualGravity) {
+                if (keyCode === LEFT_ARROW) {
+                    gravityX = -0.5;
+                    engine.world.gravity.x = gravityX;
+                }
+                if (keyCode === RIGHT_ARROW) {
+                    gravityX = 0.5;
+                    engine.world.gravity.x = gravityX;
+                }
+                if (keyCode === UP_ARROW) {
+                    gravityY = -0.5;
+                    engine.world.gravity.y = gravityY;
+                }
+                if (keyCode === DOWN_ARROW) {
+                    gravityY = 0.5;
+                    engine.world.gravity.y = gravityY;
+                }
+                if (key === ' ') {
+                    // Reset gravity to center
+                    gravityX = 0;
+                    gravityY = 1;
+                    engine.world.gravity.x = gravityX;
+                    engine.world.gravity.y = gravityY;
                 }
             }
         }
