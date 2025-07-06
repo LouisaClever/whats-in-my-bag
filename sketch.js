@@ -20,7 +20,7 @@ let gravityX = 0;
 let gravityY = 1;
 
 function preload() {
-    // Lade die 12 Bilder aus dem lokalen Ordner (z. B. item1.png bis item12.png)
+    // Lade die 12 Bilder aus dem lokalen Ordner (z. B. item1.png bis item12.png)
     for (let i = 1; i <= 12; i++) {
         images[i - 1] = loadImage(`item${i}.png`);
     }
@@ -40,7 +40,6 @@ function setup() {
     setupMouseInteraction();
 
     button = createButton('Bewegung aktivieren');
-    button.position(width / 2 - 80, height / 2 - 20);
     button.style('font-size', '18px');
     button.style('padding', '10px 20px');
     button.style('background', '#ffffff');
@@ -48,6 +47,10 @@ function setup() {
     button.style('border', 'none');
     button.style('border-radius', '5px');
     button.style('z-index', '1000');
+    button.style('position', 'fixed');
+    button.style('top', '50%');
+    button.style('left', '50%');
+    button.style('transform', 'translate(-50%, -50%)');
     button.mousePressed(requestAccess);
 }
 
